@@ -23,8 +23,7 @@ def adc():
     for i in range(7,-1,-1):  
         value +=2**i
         GPIO.output(dac, decimal_to_binary_list(value))
-        #print(value)
-        time.sleep(0.005) 
+        time.sleep(0.001) 
         if GPIO.input(comp) == 1:
             value -=2**i
     return value

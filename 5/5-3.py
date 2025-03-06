@@ -8,11 +8,8 @@ troyka = 13
 
 
 GPIO.setmode(GPIO.BCM)
-
 GPIO.setup(dac, GPIO.OUT)
-
 GPIO.setup(troyka, GPIO.OUT, initial=1)
-
 GPIO.setup(comp, GPIO.IN)
 
 def decimal_to_binary_list(n):
@@ -23,7 +20,6 @@ def adc():
     for i in range(7,-1,-1):  
         value +=2**i
         GPIO.output(dac, decimal_to_binary_list(value))
-        #print(value)
         time.sleep(0.01) 
         if GPIO.input(comp) == 1:
             value -=2**i
@@ -31,8 +27,8 @@ def adc():
 leds = [2,3,4,17,27,22,10,9]
 GPIO.setup(leds,GPIO.OUT)
 
-def light_up(voltage):
-    numled= int(voltage/3.3 *8)
+def light_up(value):
+    numled= int(value / 256.0 * 8)
     for i in range(8):
         if i<numled:
             GPIO.output(leds[i],1)
@@ -43,7 +39,7 @@ try:
         value = adc()  
         voltage = (value / 256.0) * 3.3 
         print(f"Напряжение: {voltage:.2f}V")
-        light_up(voltage)
+        light_up(value)
 finally:
     GPIO.output(dac, 0)
     

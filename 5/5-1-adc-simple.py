@@ -8,7 +8,7 @@ comp   = 14
 troyka = 13
 
 GPIO.setup(dac, GPIO.OUT)
-GPIO.setup(troyka, GPIO.OUT, initial = 1)
+GPIO.setup(troyka, GPIO.OUT, initial = GPIO.HIGH)
 GPIO.setup(comp, GPIO.IN)
 
 def decimal2binary(value):
@@ -17,11 +17,11 @@ def decimal2binary(value):
 def adc():
     for value in range(256):
         GPIO.output(dac, decimal2binary(value))
-        time.sleep(0.01)
+        time.sleep(0.001)
 
-        if (GPIO.input(comp) == 1):
+        if (GPIO.input(comp) == GPIO.HIGH):
             return value
-        return 255
+    return 256
 
 try:
     while True:
