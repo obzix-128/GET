@@ -1,90 +1,105 @@
 import RPi.GPIO as GPIO
-import matplotlib.pyplot as plt
 import time
+import matplotlib.pyplot as plt
 
-def dec2bin(value):
-    return [int(i) for i in bin(value)[2:].zfill(8)]
+# Настройка пинов
+dac = [8, 11, 7, 1, 0, 5, 12, 6]  # Пины для ЦАП
+comp = 14  # Пин для компаратора
+troyka = 13  # Пин для управления Troyka-модулем
+leds = [2, 3, 4, 17, 27, 22, 10, 9]  # Пины для светодиодов
 
-def bin2dec(value):
-    string = ''
-    for i in value:
-        string += str(i)
-    return int(string, base = 2)
-
-def adc(dac):
-    level = [0] * 8
-    for i in range(8):
-        level[i] = 1
-        GPIO.output(dac, level)
-        time.sleep(0.01)
-        comp_value = GPIO.input(comp)
-        if comp_value == 1:
-            level[i] = 0
-        GPIO.output(dac, level)
-    return bin2dec(level)
-
-dac = [6, 11, 7, 1, 0, 5, 12, 6]
-leds = [2, 3, 4, 17, 27, 22, 10, 9]
-comp = 14
-tryoka = 13
-levels = 256
-maxV = 3.3
-
+# Настройка GPIO
 GPIO.setmode(GPIO.BCM)
-
-GPIO.setup(tryoka, GPIO.OUT)
 GPIO.setup(dac, GPIO.OUT)
+GPIO.setup(troyka, GPIO.OUT, initial=0)
 GPIO.setup(comp, GPIO.IN)
-GPIO.setup(leds, GPIO.OUT, initial = GPIO.LOW)
+GPIO.setup(leds, GPIO.OUT)
 
-voltage_data = []
-time_data = []
+# Функция для преобразования числа в двоичный список
+def decimal_to_binary_list(n):
+    return [int(bit) for bit in bin(n)[2:].zfill(8)]
 
+# Функция для измерения напряжения с помощью АЦП
+def adc():
+    value = 0
+    for i in range(7, -1, -1):
+        value += 2**i
+        GPIO.output(dac, decimal_to_binary_list(value))
+        time.sleep(0.001)  # Уменьшаем задержку для повышения точности
+        if GPIO.input(comp) == 1:
+            value -= 2**i
+    return value
+
+# Функция для включения светодиодов в зависимости от значения
+def light_up(value):
+    num_led = int(value / 256.0 * 8)
+    for i in range(8):
+        GPIO.output(leds[i], 1 if i < num_led else 0)
+
+# Функция для измерения напряжения на Troyka-модуле
+def measure_voltage():
+    return adc() * 3.3 / 256.0
+
+# Основной блок
 try:
-    start = time.time()
-    GPIO.output(tryoka, GPIO.HIGH)
-    val = 0
-    while val < 200:
-        val = adc(dac)
-        GPIO.output(leds, dec2bin(adc()))
-        print("Voltage = ", val / levels * maxV)
-        #num2str(val)
-        voltage_data.append(val / levels * maxV)
-        time_data.append(time.time() - start)
-    GPIO.output(tryoka, GPIO.LOW)
+    measurements = []  # Список для хранения измерений
+    start_time = time.time()  # Запись времени начала измерений
 
-    while val > 180:
-        val = adc(dac)
-        print("Voltage = ", val / levels * maxV)
-        #num2str(val)
-        GPIO.output(leds, dec2bin(adc()))
-        voltage_data.append(val / levels * maxV)
-        time_data.append(time.time() - start)
+    # Зарядка конденсатора
+    GPIO.output(troyka, 1)  # Подаем 3.3В на Troyka-модуль
+    print("Начало зарядки конденсатора")
+    while True:
+        voltage = measure_voltage()
+        measurements.append(voltage)
+        light_up(int(voltage / 3.3 * 255))
+        if voltage >= 3.3 * 0.97:  # Остановка при достижении 97% от 3.3В
+            break
+        time.sleep(0.01)
 
-    end = time.time()
+    # Разрядка конденсатора
+    GPIO.output(troyka, 0)  # Подаем 0В на Troyka-модуль
+    print("Начало разрядки конденсатора")
+    while True:
+        voltage = measure_voltage()
+        measurements.append(voltage)
+        light_up(int(voltage / 3.3 * 255))
+        if voltage <= 3.3 * 0.02:  # Остановка при достижении 2% от 3.3В
+            break
+        time.sleep(0.01)
 
-    with open("settings.txt", 'w') as file:
-        file.write(str(end - start) / len(voltage_data)))
-        file.write(str(maxV / 256))
+    end_time = time.time()  # Запись времени завершения измерений
+    duration = end_time - start_time  # Продолжительность эксперимента
 
-    print("duration: ", end - start, " sampling rate: ", len(voltage_data) / (end - start), " ADC quantization step: ", maxV/256)
+    # Сохранение данных в файл data.txt
+    with open("data.txt", "w") as file:
+        for value in measurements:
+            file.write(f"{value}\n")
 
+    # Расчет средней частоты дискретизации и шага квантования
+    sampling_rate = len(measurements) / duration
+    quantization_step = 3.3 / 256.0
+
+    # Сохранение настроек в файл settings.txt
+    with open("settings.txt", "w") as file:
+        file.write(f"Средняя частота дискретизации: {sampling_rate:.2f} Гц\n")
+        file.write(f"Шаг квантования АЦП: {quantization_step:.4f} В\n")
+
+    # Построение графика
+    plt.plot(measurements)
+    plt.title("Зависимость напряжения от времени")
+    plt.xlabel("Номер измерения")
+    plt.ylabel("Напряжение, В")
+    plt.show()
+
+    # Вывод информации в терминал
+    print(f"Общая продолжительность эксперимента: {duration:.2f} с")
+    print(f"Период одного измерения: {duration / len(measurements):.4f} с")
+    print(f"Средняя частота дискретизации: {sampling_rate:.2f} Гц")
+    print(f"Шаг квантования АЦП: {quantization_step:.4f} В")
+
+finally:
+    # Сброс GPIO
     GPIO.output(dac, 0)
+    GPIO.output(troyka, 0)
     GPIO.output(leds, 0)
     GPIO.cleanup()
-
-    time_data_str = [str(i) for i in time_data]
-    voltage_data_str = [str(i) for i in voltage_data]
-
-    with open("my_voltage_data.txt", 'w') as file:
-        file.write('\n'.join(voltage_data_str))
-    with open("my_time_data.txt", 'w') as file:
-        file.write('\n'.join(time_data_str))
-
-    plt.plot(time_data, voltage_data)
-    plt.show()
-except Exception as e:
-    print(e)
-finally:
-    GPIO.cleanup()
-
